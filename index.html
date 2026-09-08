@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hand tracker</title>
+<style>
+  :root{
+    --bg: #0b0b10;
+    --panel: #131218;
+    --line: #26232f;
+    --text: #ece9f4;
+    --dim: #837e94;
+    --pink: #2fe7fff8;
+    --cyan: #2fceff;
+    --amber: #ff9d2f;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(255,47,176,0.08), transparent 55%),
+      radial-gradient(ellipse at 80% 100%, rgba(47,230,255,0.07), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+  body{
+    display:flex; flex-direction:column; align-items:center;
+    min-height:100vh;
+    padding: 32px 20px 60px;
+  }
+  header{
+    width:100%; max-width: 1040px;
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom: 22px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px;
+  }
+  h1{
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin:0;
+    font-family: 'Cascadia Code', Consolas, monospace;
+  }
+  h1 span{ color: var(--pink); }
+  .status{
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 0.8rem;
+    color: var(--dim);
+  }
+  .status.live{ color: var(--cyan); }
+
+  main{
+    width:100%; max-width: 1040px;
+    display:grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 780px){
+    main{ grid-template-columns: 1fr; }
+  }
+
+  .stage{
+    position:relative;
+    background:#000;
+    border:1px solid var(--line);
+    border-radius: 10px;
+    overflow:hidden;
+    aspect-ratio: 4/3;
+  }
+  video{ display:none; }
+  canvas{
+    position:absolute; top:0; left:0;
+    width:100%; height:100%;
+    transform: scaleX(-1);
+  }
+  .placeholder{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; color: var(--dim); text-align:center; padding: 24px; z-index:2;
+    background: var(--bg);
+  }
+  .placeholder button{
+    background: var(--pink);
+    color:#0b0b10;
+    border:none;
+    padding: 11px 22px;
+    border-radius: 6px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor:pointer;
+  }
+  .placeholder button:hover{ background:#ff5cc4; }
+  .placeholder small{ color:#5c5768; max-width:320px; line-height:1.5; }
+
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    display:flex; flex-direction:column; gap: 18px;
+  }
+  .panel h2{
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--dim);
+    margin:0;
+    font-weight:600;
+  }
+
+  .effects{ display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+  .effect-btn{
+    display:flex; align-items:center; gap:8px;
+    background: #1a1822;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 10px 10px;
+    color: var(--text);
+    font-size: 0.82rem;
+    cursor:pointer;
+    text-align:left;
+  }
+  .effect-btn .dot{
+    width:8px; height:8px; border-radius:50%; flex-shrink:0;
+    background: var(--dim);
+  }
+  .effect-btn.active{
+    border-color: var(--pink);
+    background: #241b28;
+  }
+  .effect-btn.active .dot{ background: var(--pink); }
+  .effect-btn:hover{ border-color:#3a3646; }
+
+  .pinch-hint{
+    font-size: 0.8rem;
+    line-height:1.55;
+    color: var(--dim);
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  .pinch-hint b{ color: var(--amber); }
+
+  .portal-status{
+    font-size: 0.85rem;
+    line-height:1.5;
+    color: var(--dim);
+  }
+  .portal-status b{ color: var(--cyan); }
+
+  .fps{
+    display:flex; justify-content:space-between;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--dim);
+  }
+  .fps b{ color: var(--text); }
+
+  footer{
+    margin-top: 26px;
+    font-size: 0.78rem;
+    color: var(--dim);
+    max-width: 1040px;
+    text-align:center;
+    line-height:1.6;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Portal<span>Cam</span></h1>
+  <div class="status" id="status">Belum aktif</div>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="placeholder" id="placeholder">
+      <button id="startBtn">Aktifkan Kamera</button>
+      <small>Angkat kedua tangan, pakai ibu jari &amp; telunjuk tiap tangan sebagai sudut kotak untuk membuka portal. Kancingkan jempol &amp; telunjuk sebentar untuk ganti efek.</small>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>EFEK PORTAL</h2>
+    <div class="effects" id="effectsList">
+      <button class="effect-btn active" data-effect="thermal"><span class="dot"></span>Thermal</button>
+      <button class="effect-btn" data-effect="glitch"><span class="dot"></span>Glitch</button>
+      <button class="effect-btn" data-effect="duotone"><span class="dot"></span>Duotone</button>
+      <button class="effect-btn" data-effect="sketch"><span class="dot"></span>Sketsa</button>
+      <button class="effect-btn" data-effect="invert"><span class="dot"></span>Invert</button>
+      <button class="effect-btn" data-effect="neon"><span class="dot"></span>Neon</button>
+      <button class="effect-btn" data-effect="pixelate"><span class="dot"></span>Piksel</button>
+    </div>
+    <div class="portal-status" id="portalStatus">
+      Portal belum terbentuk — perlu <b>2 tangan</b> terdeteksi.
+    </div>
+    <div class="pinch-hint">
+      💡 Cepat sentuhkan ujung <b>jempol ke telunjuk</b> (tangan mana saja) untuk lompat ke efek berikutnya, tanpa perlu klik tombol.
+    </div>
+    <div class="fps">
+      <span>FPS</span>
+      <b id="fpsVal">–</b>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Dijalankan sepenuhnya di browser kamu, tidak ada video yang dikirim ke server manapun. Idealnya pakai Chrome atau Edge di desktop untuk performa terbaik.
+</footer>
+
+<script type="module">
+import {
+  HandLandmarker,
+  FilesetResolver,
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+const startBtn = document.getElementById("startBtn");
+const placeholder = document.getElementById("placeholder");
+const portalStatus = document.getElementById("portalStatus");
+const fpsVal = document.getElementById("fpsVal");
+const effectBtns = document.querySelectorAll(".effect-btn");
+
+const EFFECTS = ["thermal", "glitch", "duotone", "sketch", "invert", "neon", "pixelate"];
+const EFFECT_LABELS = {
+  thermal: "PORTAL: THERMAL",
+  glitch: "PORTAL: GLITCH",
+  duotone: "PORTAL: DUOTONE",
+  sketch: "PORTAL: SKETSA",
+  invert: "PORTAL: INVERT",
+  neon: "PORTAL: NEON",
+  pixelate: "PORTAL: PIKSEL",
+};
+
+let handLandmarker = null;
+let lastTime = -1;
+let prevTimestamp = 0;
+let effectIndex = 0;
+let currentEffect = EFFECTS[0];
+let bandShiftCache = [];
+
+// ---- gesture pinch (jempol + telunjuk) untuk ganti efek ----
+const PINCH_RATIO_THRESHOLD = 0.32;
+const SWITCH_COOLDOWN_MS = 550;
+let pinchActive = false;
+let lastSwitchTime = 0;
+
+// ---- offscreen canvas untuk pemrosesan filter (resolusi lebih kecil demi performa) ----
+const filterCanvas = document.createElement("canvas");
+const filterCtx = filterCanvas.getContext("2d", { willReadFrequently: true });
+
+function setActiveButton() {
+  effectBtns.forEach((b) => b.classList.toggle("active", b.dataset.effect === currentEffect));
+}
+
+effectBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    currentEffect = btn.dataset.effect;
+    effectIndex = EFFECTS.indexOf(currentEffect);
+    setActiveButton();
+  });
+});
+
+function switchToNextEffect() {
+  effectIndex = (effectIndex + 1) % EFFECTS.length;
+  currentEffect = EFFECTS[effectIndex];
+  setActiveButton();
+}
+
+// ---------- util: box blur satu channel (dipakai efek sketsa) ----------
+function boxBlur(src, width, height, radius) {
+  const tmp = new Float32Array(width * height);
+  const dst = new Uint8ClampedArray(width * height);
+  const size = radius * 2 + 1;
+  for (let y = 0; y < height; y++) {
+    let sum = 0;
+    for (let x = -radius; x <= radius; x++) {
+      const xx = Math.min(width - 1, Math.max(0, x));
+      sum += src[y * width + xx];
+    }
+    for (let x = 0; x < width; x++) {
+      tmp[y * width + x] = sum / size;
+      const xOutC = Math.min(width - 1, Math.max(0, x - radius));
+      const xInC = Math.min(width - 1, Math.max(0, x + radius + 1));
+      sum += src[y * width + xInC] - src[y * width + xOutC];
+    }
+  }
+  for (let x = 0; x < width; x++) {
+    let sum = 0;
+    for (let y = -radius; y <= radius; y++) {
+      const yy = Math.min(height - 1, Math.max(0, y));
+      sum += tmp[yy * width + x];
+    }
+    for (let y = 0; y < height; y++) {
+      dst[y * width + x] = sum / size;
+      const yOutC = Math.min(height - 1, Math.max(0, y - radius));
+      const yInC = Math.min(height - 1, Math.max(0, y + radius + 1));
+      sum += tmp[yInC * width + x] - tmp[yOutC * width + x];
+    }
+  }
+  return dst;
+}
+
+// ---------- filter: thermal ----------
+const THERMAL_STOPS = [
+  [0, 5, 0, 40],
+  [64, 15, 0, 220],
+  [128, 0, 220, 210],
+  [180, 255, 230, 20],
+  [255, 255, 30, 10],
+];
+function thermalLUT() {
+  const lut = new Uint8ClampedArray(256 * 3);
+  for (let l = 0; l < 256; l++) {
+    let a = THERMAL_STOPS[0], b = THERMAL_STOPS[THERMAL_STOPS.length - 1];
+    for (let i = 0; i < THERMAL_STOPS.length - 1; i++) {
+      if (l >= THERMAL_STOPS[i][0] && l <= THERMAL_STOPS[i + 1][0]) {
+        a = THERMAL_STOPS[i]; b = THERMAL_STOPS[i + 1]; break;
+      }
+    }
+    const t = (l - a[0]) / (b[0] - a[0] || 1);
+    lut[l * 3] = a[1] + (b[1] - a[1]) * t;
+    lut[l * 3 + 1] = a[2] + (b[2] - a[2]) * t;
+    lut[l * 3 + 2] = a[3] + (b[3] - a[3]) * t;
+  }
+  return lut;
+}
+const THERMAL = thermalLUT();
+
+function applyThermal(data) {
+  for (let i = 0; i < data.length; i += 4) {
+    const l = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0;
+    data[i] = THERMAL[l * 3];
+    data[i + 1] = THERMAL[l * 3 + 1];
+    data[i + 2] = THERMAL[l * 3 + 2];
+  }
+}
+
+// ---------- filter: duotone ----------
+const DUO_A = [40, 0, 40];
+const DUO_MID = [230, 20, 140];
+const DUO_B = [255, 200, 60];
+function applyDuotone(data) {
+  for (let i = 0; i < data.length; i += 4) {
+    const l = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255;
+    let r, g, b;
+    if (l < 0.5) {
+      const t = l * 2;
+      r = DUO_A[0] + (DUO_MID[0] - DUO_A[0]) * t;
+      g = DUO_A[1] + (DUO_MID[1] - DUO_A[1]) * t;
+      b = DUO_A[2] + (DUO_MID[2] - DUO_A[2]) * t;
+    } else {
+      const t = (l - 0.5) * 2;
+      r = DUO_MID[0] + (DUO_B[0] - DUO_MID[0]) * t;
+      g = DUO_MID[1] + (DUO_B[1] - DUO_MID[1]) * t;
+      b = DUO_MID[2] + (DUO_B[2] - DUO_MID[2]) * t;
+    }
+    data[i] = r; data[i + 1] = g; data[i + 2] = b;
+  }
+}
+
+// ---------- filter: glitch ----------
+function applyGlitch(data, width, height, t) {
+  const src = data.slice();
+  const shiftR = Math.round(6 * Math.sin(t * 3));
+  const shiftB = Math.round(6 * Math.cos(t * 2.3));
+  const bandHeight = 12;
+  const bands = Math.ceil(height / bandHeight);
+  if (bandShiftCache.length !== bands || Math.random() < 0.15) {
+    bandShiftCache = new Array(bands).fill(0).map(() =>
+      Math.random() < 0.22 ? Math.round((Math.random() * 2 - 1) * 20) : 0
+    );
+  }
+  for (let y = 0; y < height; y++) {
+    const rowShift = bandShiftCache[(y / bandHeight) | 0] || 0;
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      let sx = (x - rowShift + width) % width;
+      let rx = (sx - shiftR + width) % width;
+      let bx = (sx + shiftB + width) % width;
+      const sIdx = (y * width + sx) * 4;
+      const rIdx = (y * width + rx) * 4;
+      const bIdx = (y * width + bx) * 4;
+      data[idx] = src[rIdx];
+      data[idx + 1] = src[sIdx + 1];
+      data[idx + 2] = src[bIdx + 2];
+    }
+  }
+}
+
+// ---------- filter: sketsa pensil ----------
+function applySketch(data, width, height) {
+  const n = width * height;
+  const gray = new Uint8ClampedArray(n);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    gray[p] = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0;
+  }
+  const inv = new Uint8ClampedArray(n);
+  for (let p = 0; p < n; p++) inv[p] = 255 - gray[p];
+  const blurred = boxBlur(inv, width, height, 4);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const g = gray[p];
+    const b = blurred[p];
+    const val = Math.min(255, (g * 255) / (255 - b + 1));
+    data[i] = data[i + 1] = data[i + 2] = val;
+  }
+}
+
+// ---------- filter: invert ----------
+function applyInvert(data) {
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255 - data[i];
+    data[i + 1] = 255 - data[i + 1];
+    data[i + 2] = 255 - data[i + 2];
+  }
+}
+
+// ---------- filter: neon edge ----------
+function applyNeon(data, width, height) {
+  const n = width * height;
+  const gray = new Float32Array(n);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    gray[p] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+  }
+  const src = data.slice();
+  const neonR = 60, neonG = 230, neonB = 255;
+  function g(x, y) {
+    const xx = x < 0 ? 0 : x >= width ? width - 1 : x;
+    const yy = y < 0 ? 0 : y >= height ? height - 1 : y;
+    return gray[yy * width + xx];
+  }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const gx = g(x + 1, y - 1) + 2 * g(x + 1, y) + g(x + 1, y + 1) - g(x - 1, y - 1) - 2 * g(x - 1, y) - g(x - 1, y + 1);
+      const gy = g(x - 1, y + 1) + 2 * g(x, y + 1) + g(x + 1, y + 1) - g(x - 1, y - 1) - 2 * g(x, y - 1) - g(x + 1, y - 1);
+      const mag = Math.min(1, Math.sqrt(gx * gx + gy * gy) / 260);
+      const idx = (y * width + x) * 4;
+      data[idx] = neonR * mag;
+      data[idx + 1] = neonG * mag;
+      data[idx + 2] = neonB * mag;
+    }
+  }
+}
+
+// ---------- filter: pixelate ----------
+function applyPixelate(data, width, height) {
+  const blockSize = 10;
+  for (let by = 0; by < height; by += blockSize) {
+    for (let bx = 0; bx < width; bx += blockSize) {
+      const cx = Math.min(width - 1, bx + (blockSize >> 1));
+      const cy = Math.min(height - 1, by + (blockSize >> 1));
+      const cIdx = (cy * width + cx) * 4;
+      const r = data[cIdx], gC = data[cIdx + 1], b = data[cIdx + 2];
+      const yEnd = Math.min(height, by + blockSize);
+      const xEnd = Math.min(width, bx + blockSize);
+      for (let y = by; y < yEnd; y++) {
+        for (let x = bx; x < xEnd; x++) {
+          const idx = (y * width + x) * 4;
+          data[idx] = r; data[idx + 1] = gC; data[idx + 2] = b;
+        }
+      }
+    }
+  }
+}
+
+function applyFilter(imageData, width, height, effect, t) {
+  const data = imageData.data;
+  if (effect === "thermal") applyThermal(data);
+  else if (effect === "duotone") applyDuotone(data);
+  else if (effect === "glitch") applyGlitch(data, width, height, t);
+  else if (effect === "sketch") applySketch(data, width, height);
+  else if (effect === "invert") applyInvert(data);
+  else if (effect === "neon") applyNeon(data, width, height);
+  else if (effect === "pixelate") applyPixelate(data, width, height);
+}
+
+// ---------- geometri portal dari 2 tangan ----------
+function computeQuad(results, w, h) {
+  if (!results.landmarks || results.landmarks.length < 2) return null;
+  const hands = results.landmarks.map((lm, i) => ({
+    lm,
+    avgX: lm.reduce((s, p) => s + p.x, 0) / lm.length,
+  }));
+  hands.sort((a, b) => a.avgX - b.avgX);
+  const [leftHand, rightHand] = hands;
+
+  function topBottom(hand) {
+    const thumb = hand.lm[4], index = hand.lm[8];
+    return thumb.y < index.y ? { top: thumb, bottom: index } : { top: index, bottom: thumb };
+  }
+  const L = topBottom(leftHand);
+  const R = topBottom(rightHand);
+
+  return [
+    { x: L.top.x * w, y: L.top.y * h },
+    { x: R.top.x * w, y: R.top.y * h },
+    { x: R.bottom.x * w, y: R.bottom.y * h },
+    { x: L.bottom.x * w, y: L.bottom.y * h },
+  ];
+}
+
+// ---------- deteksi pinch (jempol dekat telunjuk) di tangan manapun ----------
+function detectPinch(results) {
+  if (!results.landmarks) return false;
+  for (const lm of results.landmarks) {
+    const dx = lm[4].x - lm[8].x, dy = lm[4].y - lm[8].y;
+    const dist = Math.hypot(dx, dy);
+    const rx = lm[0].x - lm[9].x, ry = lm[0].y - lm[9].y;
+    const ref = Math.hypot(rx, ry) || 1;
+    if (dist / ref < PINCH_RATIO_THRESHOLD) return true;
+  }
+  return false;
+}
+
+function drawMirroredLabel(text, x, y) {
+  ctx.save();
+  ctx.font = "600 13px Consolas, monospace";
+  const width = ctx.measureText(text).width;
+  ctx.translate(x, y);
+  ctx.scale(-1, 1);
+  ctx.fillStyle = "#0b0b10";
+  ctx.fillRect(-width - 12, -18, width + 12, 22);
+  ctx.fillStyle = "#ece9f4";
+  ctx.fillText(text, -width - 6, -3);
+  ctx.restore();
+}
+
+async function setupHandLandmarker() {
+  statusEl.textContent = "Mengunduh model...";
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  handLandmarker = await HandLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numHands: 2,
+  });
+}
+
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 960, height: 720 },
+    audio: false,
+  });
+  video.srcObject = stream;
+  await new Promise((resolve) => (video.onloadedmetadata = resolve));
+  video.play();
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const fw = 220;
+  filterCanvas.width = fw;
+  filterCanvas.height = Math.round(fw * (video.videoHeight / video.videoWidth));
+}
+
+function predictLoop() {
+  const now = performance.now();
+  if (video.currentTime !== lastTime) {
+    lastTime = video.currentTime;
+
+    const results = handLandmarker.detectForVideo(video, now);
+    const quad = computeQuad(results, canvas.width, canvas.height);
+
+    const isPinching = detectPinch(results);
+    if (isPinching && !pinchActive && now - lastSwitchTime > SWITCH_COOLDOWN_MS) {
+      switchToNextEffect();
+      lastSwitchTime = now;
+    }
+    pinchActive = isPinching;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    if (quad) {
+      filterCtx.drawImage(video, 0, 0, filterCanvas.width, filterCanvas.height);
+      const imageData = filterCtx.getImageData(0, 0, filterCanvas.width, filterCanvas.height);
+      applyFilter(imageData, filterCanvas.width, filterCanvas.height, currentEffect, now / 1000);
+      filterCtx.putImageData(imageData, 0, 0);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(quad[0].x, quad[0].y);
+      for (let i = 1; i < quad.length; i++) ctx.lineTo(quad[i].x, quad[i].y);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(filterCanvas, 0, 0, filterCanvas.width, filterCanvas.height, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(quad[0].x, quad[0].y);
+      for (let i = 1; i < quad.length; i++) ctx.lineTo(quad[i].x, quad[i].y);
+      ctx.closePath();
+      ctx.strokeStyle = pinchActive ? "rgba(255,157,47,0.95)" : "rgba(236,233,244,0.9)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+
+      drawMirroredLabel(EFFECT_LABELS[currentEffect], quad[0].x, quad[0].y - 6);
+
+      portalStatus.innerHTML = `Portal <b>aktif</b> — efek ${currentEffect} sedang ditampilkan.`;
+    } else {
+      portalStatus.innerHTML = `Portal belum terbentuk — perlu <b>2 tangan</b> terdeteksi.`;
+    }
+
+    if (prevTimestamp) {
+      const fps = 1000 / (now - prevTimestamp);
+      fpsVal.textContent = fps.toFixed(0);
+    }
+    prevTimestamp = now;
+  }
+  requestAnimationFrame(predictLoop);
+}
+
+startBtn.addEventListener("click", async () => {
+  startBtn.disabled = true;
+  startBtn.textContent = "Menyiapkan...";
+  try {
+    await setupHandLandmarker();
+    await startCamera();
+    placeholder.style.display = "none";
+    statusEl.textContent = "● Live";
+    statusEl.classList.add("live");
+    predictLoop();
+  } catch (err) {
+    statusEl.textContent = "Gagal mengaktifkan";
+    placeholder.innerHTML = `<small style="color:#ff6b4d">Terjadi error: ${err.message}. Pastikan kamu memberi izin akses kamera dan memakai browser yang didukung.</small>`;
+  }
+});
+</script>
+</body>
+</html>
